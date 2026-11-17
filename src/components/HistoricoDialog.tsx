@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { 
   Dialog, DialogTitle, DialogContent, IconButton, 
   CircularProgress, Pagination, Box, Typography 
@@ -10,19 +10,23 @@ import type { EventoPlacaResponse } from '../types/historico';
 import { DetalhesVistoriaDialog } from './DetalheVistoriaDialog';
 import { EditRelatorioDialog } from './EditRelatorioDialog';
 import './HistoricoDialog.css';
+import { DeleteRelatorioDialog } from './DeleteRelatorioDialog';
+import { toast } from 'sonner';
+import { toastOptions } from '../lib/toastOptions';
 
 interface HistoricoDialogProps {
   placaId: string;
   open: boolean;
   onClose: () => void;
   enderecoPlaca?: string;
+  onDeleted?: () => void;
 }
 
 function dataFormatada(data: string) {
   return data.slice(0, 10).split('-').reverse().join('/');
 }
 
-export function HistoricoDialog({ placaId, open, onClose, enderecoPlaca = 'Endereço não informado' }: HistoricoDialogProps) {
+export function HistoricoDialog({ placaId, open, onClose, onDeleted, enderecoPlaca = 'Endereço não informado' }: HistoricoDialogProps) {
   const [loading, setLoading] = useState(false);
   const [itens, setItens] = useState<EventoPlacaResponse[]>([]);
   const [page, setPage] = useState(1);
@@ -32,30 +36,38 @@ export function HistoricoDialog({ placaId, open, onClose, enderecoPlaca = 'Ender
   const [modalEdicaoAberto, setModalEdicaoAberto] = useState(false);
   const [eventoEditando, setEventoEditando] = useState<EventoPlacaResponse | null>(null);
   
+  const [eventoExcluindo, setEventoExcluindo] = useState<EventoPlacaResponse | null>(null);
+  const [revisao, setRevisao] = useState(0);
+  const [total, setTotal] = useState(0);
+  const requestVersion = useRef(0);
   const pageSize = 5;
 
   useEffect(() => {
     if (!open) return;
     let ativo = true;
+    const version = ++requestVersion.current;
 
     async function carregarDados() {
       setLoading(true);
       try {
         const resultado = await historicoService.obterHistorico(placaId, page, pageSize);
-        if (ativo) {
+        if (ativo && version === requestVersion.current) {
+          const ultimaPagina = Math.max(1, Math.ceil(resultado.total / resultado.page_size));
+          if (page > ultimaPagina) { setPage(ultimaPagina); return; }
+          setTotal(resultado.total);
           setItens(resultado.items);
           setTotalPages(Math.ceil(resultado.total / resultado.page_size) || 1);
         }
-      } catch (error) {
-        console.error('Erro ao carregar histórico', error);
+      } catch {
+        if (ativo && version === requestVersion.current) toast.error('Não foi possível atualizar o histórico. Tente abrir novamente.', toastOptions);
       } finally {
-        if (ativo) setLoading(false);
+        if (ativo && version === requestVersion.current) setLoading(false);
       }
     }
 
     carregarDados();
     return () => { ativo = false; };
-  }, [placaId, page, open]);
+  }, [placaId, page, open, revisao]);
 
   return (
     <>
@@ -137,9 +149,29 @@ export function HistoricoDialog({ placaId, open, onClose, enderecoPlaca = 'Ender
           setModalEdicaoAberto(true); // Abre o seu novo modal de edição
         }}
         onExcluir={(ev) => {
-          console.log('Excluir evento:', ev.id);
+          setEventoExcluindo(ev);
         }}
       />
+
+      {eventoExcluindo && <DeleteRelatorioDialog
+        key={eventoExcluindo.id}
+        placaId={placaId}
+        evento={eventoExcluindo}
+        onClose={() => setEventoExcluindo(null)}
+        onDeleted={(eventoId) => {
+          requestVersion.current += 1;
+          setItens((atuais) => atuais.filter((item) => item.id !== eventoId));
+          const novoTotal = Math.max(0, total - 1);
+          const paginas = Math.max(1, Math.ceil(novoTotal / pageSize));
+          setTotal(novoTotal);
+          setTotalPages(paginas);
+          setPage((atual) => Math.min(atual, paginas));
+          setEventoSelecionado(null);
+          setEventoExcluindo(null);
+          setRevisao((valor) => valor + 1);
+          onDeleted?.();
+        }}
+      />}
 
       {/* O SEU NOVO MODAL DE EDIÇÃO */}
       <EditRelatorioDialog
