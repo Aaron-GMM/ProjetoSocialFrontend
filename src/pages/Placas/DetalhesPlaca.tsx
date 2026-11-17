@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { placasService } from '../../services/placasService';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { Alert, Button, CircularProgress, Box } from '@mui/material';
@@ -30,9 +30,10 @@ function Avaliacao({ titulo, estado }: { titulo: string; estado: EstadoConservac
   );
 }
 
-export function ConteudoDetalhesPlaca({ dados, placaId }: { dados: DadosDetalhes; placaId: string }) {
+export function ConteudoDetalhesPlaca({ dados, placaId, onHistoryChanged }: { dados: DadosDetalhes; placaId: string; onHistoryChanged?: () => void }) {
   const { placa } = dados;
   const [modalOpen, setModalOpen] = useState(false);
+  const historicoAlterado = useRef(false);
 
   return (
     <div className="plate-details-grid">
@@ -111,7 +112,14 @@ export function ConteudoDetalhesPlaca({ dados, placaId }: { dados: DadosDetalhes
         <HistoricoDialog
           placaId={placaId}
           open={modalOpen}
-          onClose={() => setModalOpen(false)}
+          onDeleted={() => { historicoAlterado.current = true; }}
+          onClose={() => {
+            setModalOpen(false);
+            if (historicoAlterado.current) {
+              historicoAlterado.current = false;
+              onHistoryChanged?.();
+            }
+          }}
           enderecoPlaca={placa.endereco}
         />
       </section>
@@ -152,7 +160,7 @@ export function DetalhesPlaca() {
       </header>
       {loading ? <div role="status"><CircularProgress size={28} /> Carregando placa...</div>
         : erro ? <Alert severity="error" action={<Button variant="text" onClick={() => setTentativa((valor) => valor + 1)}>Tentar novamente</Button>}>Não foi possível carregar a placa.</Alert>
-        : dados && id ? <ConteudoDetalhesPlaca dados={dados} placaId={id} />
+        : dados && id ? <ConteudoDetalhesPlaca dados={dados} placaId={id} onHistoryChanged={() => setTentativa((valor) => valor + 1)} />
         : <Navigate to="/placas" replace />}
     </div>
   );
